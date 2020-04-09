@@ -6,6 +6,7 @@ package qp.utils;
 
 import java.util.ArrayList;
 import java.io.Serializable;
+import java.util.Iterator;
 
 public class Batch implements Serializable {
 
@@ -79,5 +80,9 @@ public class Batch implements Serializable {
             return true;
         else
             return false;
+    }
+
+    public Iterator<Tuple> getIterator() {
+        return tuples.iterator();
     }
 }
