@@ -29,15 +29,12 @@ public class PlanCost {
      **/
     boolean isFeasible;
 
-    /**
-     * Hashtable stores mapping from Attribute name to
-     * * number of distinct values of that attribute
-     **/
-    HashMap<Attribute, Long> ht;
+    // hashMap stores mapping from Attribute name to number of distinct values of that attribute
+    HashMap<Attribute, Long> hashMap;
 
 
     public PlanCost() {
-        ht = new HashMap<>();
+        hashMap = new HashMap<>();
         cost = 0;
     }
 
@@ -76,10 +73,22 @@ public class PlanCost {
             return getStatistics((Project) node);
         } else if (node.getOpType() == OpType.SCAN) {
             return getStatistics((Scan) node);
+        } else if (node.getOpType() == OpType.GROUPBY) {
+            return getStatistics((GroupBy) node);
+        } else if (node.getOpType() == OpType.DISTINCT) {
+            return getStatistics((Distinct)node);
         }
         System.out.println("operator is not supported");
         isFeasible = false;
-        return 0;
+        return -1;
+    }
+
+    protected long getStatistics(GroupBy node) {
+        return calculateCost(node.getBase());
+    }
+
+    protected long getStatistics(Distinct node) {
+        return calculateCost(node.getBase());
     }
 
     /**
@@ -98,41 +107,42 @@ public class PlanCost {
         long righttuples = calculateCost(node.getRight());
 
         if (!isFeasible) {
-            return 0;
+            return -1;
         }
 
+        Condition condition = node.getCondition();
         Schema leftschema = node.getLeft().getSchema();
         Schema rightschema = node.getRight().getSchema();
 
         /** Get size of the tuple in output & correspondigly calculate
          ** buffer capacity, i.e., number of tuples per page **/
         long tuplesize = node.getSchema().getTupleSize();
-        long outcapacity = Math.max(1, Batch.getPageSize() / tuplesize);
+        long outcapacity = Batch.getPageSize() / tuplesize;
         long leftuplesize = leftschema.getTupleSize();
-        long leftcapacity = Math.max(1, Batch.getPageSize() / leftuplesize);
+        long leftcapacity = Batch.getPageSize() / leftuplesize;
         long righttuplesize = rightschema.getTupleSize();
-        long rightcapacity = Math.max(1, Batch.getPageSize() / righttuplesize);
+        long rightcapacity = Batch.getPageSize() / righttuplesize;
         long leftpages = (long) Math.ceil(((double) lefttuples) / (double) leftcapacity);
         long rightpages = (long) Math.ceil(((double) righttuples) / (double) rightcapacity);
 
-        double tuples = (double) lefttuples * righttuples;
-        for (Condition con : node.getConditionList()) {
-            Attribute leftjoinAttr = con.getLhs();
-            Attribute rightjoinAttr = (Attribute) con.getRhs();
-            int leftattrind = leftschema.indexOf(leftjoinAttr);
-            int rightattrind = rightschema.indexOf(rightjoinAttr);
-            leftjoinAttr = leftschema.getAttribute(leftattrind);
-            rightjoinAttr = rightschema.getAttribute(rightattrind);
 
-            /** Number of distinct values of left and right join attribute **/
-            long leftattrdistn = ht.get(leftjoinAttr);
-            long rightattrdistn = ht.get(rightjoinAttr);
-            tuples /= (double) Math.max(leftattrdistn, rightattrdistn);
-            long mindistinct = Math.min(leftattrdistn, rightattrdistn);
-            ht.put(leftjoinAttr, mindistinct);
-            ht.put(rightjoinAttr, mindistinct);
-        }
-        long outtuples = (long) Math.ceil(tuples);
+        Attribute leftjoinAttr = condition.getLhs();
+        Attribute rightjoinAttr = (Attribute) condition.getRhs();
+        int leftattrind = leftschema.indexOf(leftjoinAttr);
+        int rightattrind = rightschema.indexOf(rightjoinAttr);
+        leftjoinAttr = leftschema.getAttribute(leftattrind);
+        rightjoinAttr = rightschema.getAttribute(rightattrind);
+
+        /** Number of distinct values of left and right join attribute **/
+        long leftattrdistn = hashMap.get(leftjoinAttr);
+        long rightattrdistn = hashMap.get(rightjoinAttr);
+
+        int outtuples = (int) Math.ceil(((double) lefttuples * righttuples) /
+                (double) Math.max(leftattrdistn,rightattrdistn));
+
+        long mindistinct = Math.min(leftattrdistn, rightattrdistn);
+        hashMap.put(leftjoinAttr, mindistinct);
+        hashMap.put(rightjoinAttr, mindistinct);
 
         /** Calculate the cost of the operation **/
         int joinType = node.getJoinType();
@@ -143,9 +153,16 @@ public class PlanCost {
             case JoinType.NESTEDJOIN:
                 joincost = leftpages * rightpages;
                 break;
+            case JoinType.BLOCKNESTED:
+                joincost = 0;
+                break;
+            case JoinType.HASHJOIN:
+                joincost = 3 * (leftpages + rightpages);
+                break;
             default:
                 System.out.println("join type is not supported");
-                return 0;
+                joincost = 0;
+                break;
         }
         cost = cost + joincost;
 
@@ -173,7 +190,7 @@ public class PlanCost {
 
         /** Get number of distinct values of selection attributes **/
         long numdistinct = intuples;
-        Long temp = ht.get(fullattr);
+        Long temp = hashMap.get(fullattr);
         numdistinct = temp.longValue();
 
         long outtuples;
@@ -192,9 +209,9 @@ public class PlanCost {
          **/
         for (int i = 0; i < schema.getNumCols(); ++i) {
             Attribute attri = schema.getAttribute(i);
-            long oldvalue = ht.get(attri);
+            long oldvalue = hashMap.get(attri);
             long newvalue = (long) Math.ceil(((double) outtuples / (double) intuples) * oldvalue);
-            ht.put(attri, outtuples);
+            hashMap.put(attri, outtuples);
         }
         return outtuples;
     }
@@ -241,14 +258,14 @@ public class PlanCost {
         }
         tokenizer = new StringTokenizer(line);
         if (tokenizer.countTokens() != numAttr) {
-            System.out.println("incorrect format of statastics file " + filename);
+            System.out.println("incorrect format of statistics file " + filename);
             System.exit(1);
         }
         for (int i = 0; i < numAttr; ++i) {
             Attribute attr = schema.getAttribute(i);
             temp = tokenizer.nextToken();
             Long distinctValues = Long.valueOf(temp);
-            ht.put(attr, distinctValues);
+            hashMap.put(attr, distinctValues);
         }
 
         /** Number of tuples per page**/
@@ -268,14 +285,3 @@ public class PlanCost {
     }
 
 }
-
-
-
-
-
-
-
-
-
-
-

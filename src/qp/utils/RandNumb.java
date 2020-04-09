@@ -22,4 +22,10 @@ public class RandNumb {
             return false;
     }
 
+    private static int[] PRIME = {53, 97, 193, 389, 769, 1543, 3079, 6151, 12289, 24593, 49157, 98317, 196613};
+
+    public static int randPrime() {
+        int index = randInt(0, PRIME.length - 1);
+        return PRIME[index];
+    }
 }

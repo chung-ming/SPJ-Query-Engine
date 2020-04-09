@@ -22,7 +22,7 @@ public class RandomOptimizer {
     public static final int ASSOCIATIVE = 2;   // Rearranging the operators by associative rule
 
     /**
-     * Number of altenative methods available for a node as specified above
+     * Number of alternative methods available for a node as specified above
      **/
     public static final int NUMCHOICES = 3;
 
@@ -55,6 +55,18 @@ public class RandomOptimizer {
                     nj.setRight(right);
                     nj.setNumBuff(numbuff);
                     return nj;
+                case JoinType.BLOCKNESTED:
+                    BlockNestedJoin bnj = new BlockNestedJoin((Join) node);
+                    bnj.setLeft(left);
+                    bnj.setRight(right);
+                    bnj.setNumBuff(numbuff);
+                    return bnj;
+                case JoinType.HASHJOIN:
+                    HashJoin hj = new HashJoin((Join) node);
+                    hj.setLeft(left);
+                    hj.setRight(right);
+                    hj.setNumBuff(numbuff);
+                    return hj;
                 default:
                     return node;
             }
@@ -65,6 +77,16 @@ public class RandomOptimizer {
         } else if (node.getOpType() == OpType.PROJECT) {
             Operator base = makeExecPlan(((Project) node).getBase());
             ((Project) node).setBase(base);
+            return node;
+        } else if (node.getOpType() == OpType.GROUPBY) {
+            Operator base = makeExecPlan(((GroupBy) node).getBase());
+            ((GroupBy) node).setBase(base);
+            return node;
+        } else if (node.getOpType() == OpType.DISTINCT) {
+            int numBuff = BufferManager.numBuffer;
+            Operator base = makeExecPlan(((Distinct) node).getBase());
+            ((Distinct) node).setBase(base);
+            ((Distinct) node).setNumBuff(numBuff);
             return node;
         } else {
             return node;
@@ -119,11 +141,11 @@ public class RandomOptimizer {
         for (int j = 0; j < NUMITER; ++j) {
             Operator initPlan = rip.prepareInitialPlan();
             modifySchema(initPlan);
-            System.out.println("-----------initial Plan-------------");
+            System.out.println("-----------Initial Plan-------------");
             Debug.PPrint(initPlan);
             PlanCost pc = new PlanCost();
             long initCost = pc.getCost(initPlan);
-            System.out.println(initCost);
+            System.out.println(" " + initCost);
 
             boolean flag = true;
             long minNeighborCost = initCost;   //just initialization purpose;
@@ -138,7 +160,7 @@ public class RandomOptimizer {
                     Debug.PPrint(minNeighbor);
                     pc = new PlanCost();
                     minNeighborCost = pc.getCost(minNeighbor);
-                    System.out.println("  " + minNeighborCost);
+                    System.out.println(" " + minNeighborCost);
 
                     /** In this loop we consider from the
                      ** possible neighbors (randomly selected)
@@ -157,7 +179,7 @@ public class RandomOptimizer {
                             System.out.println("fatal error.");
                             System.exit(0);
                         }
-                        System.out.println(neighborCost);
+                        System.out.println(" " + neighborCost);
 
                         if (neighborCost < minNeighborCost) {
                             minNeighbor = neighbor;
@@ -185,12 +207,12 @@ public class RandomOptimizer {
         System.out.println("\n\n\n");
         System.out.println("---------------------------Final Plan----------------");
         Debug.PPrint(finalPlan);
-        System.out.println("  " + MINCOST);
+        System.out.println(" " + MINCOST);
         return finalPlan;
     }
 
     /**
-     * Selects a random method choice for join wiht number joinNum
+     * Selects a random method choice for join with number joinNum
      * *  e.g., Nested loop join, Sort-Merge Join, Hash Join etc..,
      * * returns the modified plan
      **/
@@ -362,13 +384,17 @@ public class RandomOptimizer {
             return findNodeAt(((Select) node).getBase(), joinNum);
         } else if (node.getOpType() == OpType.PROJECT) {
             return findNodeAt(((Project) node).getBase(), joinNum);
+        } else if (node.getOpType() == OpType.GROUPBY) {
+            return findNodeAt(((GroupBy) node).getBase(), joinNum);
+        } else if (node.getOpType() == OpType.DISTINCT) {
+            return findNodeAt(((Distinct) node).getBase(), joinNum);
         } else {
             return null;
         }
     }
 
     /**
-     * Modifies the schema of operators which are modified due to selecing an alternative neighbor plan
+     * Modifies the schema of operators which are modified due to selecting an alternative neighbor plan
      **/
     private void modifySchema(Operator node) {
         if (node.getOpType() == OpType.JOIN) {
@@ -386,6 +412,15 @@ public class RandomOptimizer {
             modifySchema(base);
             ArrayList attrlist = ((Project) node).getProjAttr();
             node.setSchema(base.getSchema().subSchema(attrlist));
+        } else if (node.getOpType() == OpType.GROUPBY) {
+            Operator base = ((GroupBy) node).getBase();
+            modifySchema(base);
+            ArrayList attrlist = ((GroupBy) node).getGroupAttr();
+            node.setSchema(base.getSchema().subSchema(attrlist));
+        } else if (node.getOpType() == OpType.DISTINCT) {
+            Operator base = ((Distinct) node).getBase();
+            modifySchema(base);
+            node.setSchema(base.getSchema());
         }
     }
 }

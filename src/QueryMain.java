@@ -28,10 +28,33 @@ public class QueryMain {
         Batch.setPageSize(getPageSize(args, in));
 
         SQLQuery sqlquery = getSQLQuery(args[0]);
-        configureBufferManager(sqlquery.getNumJoin(), args, in);
+        // Gets the number of joins stated in the query
+        // Assigns buffers to each join operator
+        configureBufferManager(sqlquery.getNumJoin(), sqlquery.isDistinct(), args, in);
 
+        /**
+         * Runs the optimizer and gets the final query plan as an operator
+         *   The optimizer tries to optimize a plan through an iterative improvement algorithm, before
+         *     settling on a final plan
+         *   The RandomOptimizer first initializes a RandomInitialPlan.
+         *   The RandomInitialPlan gets an initial plan for the sql query. The plan has a few lists,
+         *     including the projectList, fromList, selectionList, joinList, groupByList
+         *   Creates the Scan Operator for each of the table mentioned in from list
+         *   Creates the Selection Operators for each of the selection condition mentioned in Condition list
+         *   Creates the Join Operators
+         *   Creates the Projection Operator
+         *   Decide on the
+         *   Plans the cost, where the cost is calculated based on the number of tuples in the root
+         *   Finds the minimum cost
+         */
         Operator root = getQueryPlan(sqlquery);
+
+        // Prints the final plan
+        // Asks user whether to continue
         printFinalPlan(root, args, in);
+
+        // Executes query
+        // Prints run statistics
         executeQuery(root, args[1]);
     }
 
@@ -75,7 +98,7 @@ public class QueryMain {
         try {
             p.parse();
         } catch (Exception e) {
-            System.out.println("Exception occured while parsing");
+            System.out.println("Exception occurred while parsing");
             System.exit(1);
         }
 
@@ -86,8 +109,8 @@ public class QueryMain {
      * If there are joins then assigns buffers to each join operator while preparing the plan.
      * As buffer manager is not implemented, just input the number of buffers available.
      **/
-    private static void configureBufferManager(int numJoin, String[] args, BufferedReader in) {
-        if (numJoin != 0) {
+    private static void configureBufferManager(int numJoin, boolean isDistinct, String[] args, BufferedReader in) {
+        if (numJoin != 0 || isDistinct) {
             int numBuff = 1000;
             if (args.length < 4) {
                 System.out.println("enter the number of buffers available");
@@ -119,7 +142,7 @@ public class QueryMain {
         Operator planroot = optimizer.getOptimizedPlan();
 
         if (planroot == null) {
-            System.out.println("DPOptimizer: query plan is null");
+            System.out.println("RandomOptimizer: query plan is null");
             System.exit(1);
         }
 
@@ -163,7 +186,7 @@ public class QueryMain {
         try {
             out = new PrintWriter(new BufferedWriter(new FileWriter(resultfile)));
         } catch (IOException io) {
-            System.out.println("QueryMain:error in opening result file: " + resultfile);
+            System.out.println("QueryMain: Error in opening result file: " + resultfile);
             System.exit(1);
         }
 
